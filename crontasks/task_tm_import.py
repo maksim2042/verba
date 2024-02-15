@@ -1,3 +1,4 @@
+import copy
 import logging
 import random
 import sys
@@ -53,44 +54,45 @@ processed_files = utils.read_processed_files(processed_files_file)
 storage = models.TrademarkStorage(trademarks_storage_file)
 storage.load()
 
+
+import_payload = {'reader': 'SimpleReader',
+	 'chunker': 'TokenChunker',
+	 'embedder': 'MiniLMEmbedder',
+	 'fileBytes': [],
+	 'fileNames': [],
+	 'filePath': '',
+	 'document_type': 'CT',
+	 'chunkUnits': 100,
+	 'chunkOverlap': 25,
+	}
+
 # for f in ['apc18840407-20231231-81.zip']:#files[:1]:
 # for f in ['apc18840407-20231231-80.zip']:#files[:1]:
-# for f in files[:1]:
-for f in files[44:]:
-	logger.info(f"\nProcessing file {f}:")
+for f in files[:1]:
+# for f in files[:44]:
+	logger.info(f"Processing file {f}:")
 	if f in processed_files:
 		continue ### don't ingest twice
 
 
-	for tm in utils.parser(uspto_base_url, f):
+	for i, tm in enumerate(utils.parser(uspto_base_url, f)):
 		if tm['status'] in live_codes:
 			storage.update(tm)
 		else:
 			storage.remove(tm)
 		print('.', end='')
-	print()
+		if i % 10 == 9:
+			txt = json.dumps(storage._data)
+			storage._data = {}
+			payload = copy.deepcopy(import_payload)
+			payload['fileBytes'].append(base64.b64encode(txt.encode('utf-8')).decode('ascii'))
+			payload['fileNames'].append(tm['mark'] + '.json')
+			try:
+				res = requests.post(url, data=json.dumps(payload))
+				print(f'\nsent with status: {res.status_code}, text: {res.text}')
+			except Exception as e:
+				print("POST failed") ### is the API down?
+			logger.info(f"{i} done")
 	storage.dump()
 	utils.add_processed_file(processed_files_file, processed_files, f)
 
-
-			# import_payload['fileBytes'].append(base64.b64encode(txt.encode('utf-8')).decode('ascii'))
-			# import_payload['fileNames'].append(tm['mark'] + '.json')
-
-
-
-	# try:
-	# 	res = requests.post(url, data=json.dumps(payload))
-	# except:
-	# 	print("POST failed") ### is the API down?
-	# 	break
-
-	# if res.status_code != 200:
-	# 	print("POST failed with status code %s" %res.status_code)
-	# 	break
-	#
-	# print("ingest complete, moving on")
-	# ingest_log.append(f)
-	# break
-
-
-#filename = 'apc18840407-20221231-78.zip'

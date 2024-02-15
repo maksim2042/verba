@@ -5,16 +5,7 @@ from io import BytesIO
 from urllib.request import urlopen
 import xmltodict
 
-import_payload = {'reader': 'SimpleReader',
-	 'chunker': 'TokenChunker',
-	 'embedder': 'MiniLMEmbedder',
-	 'fileBytes': [],
-	 'fileNames': [],
-	 'filePath': '',
-	 'document_type': 'CT',
-	 'chunkUnits': 100,
-	 'chunkOverlap': 25,
-	}
+
 
 # def get_all_documents():
 # 	get_payload = {

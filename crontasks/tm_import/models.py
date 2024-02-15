@@ -1,5 +1,6 @@
 import json
 import logging
+import pickle
 from typing import List
 from typing import Optional
 from sqlalchemy import ForeignKey
@@ -67,16 +68,20 @@ class TrademarkStorage:
             del self._data[serial_number]
 
     def dump(self):
-        with open(self._storage_file, 'w') as file:
-            json.dump(self._data, file, indent=4)
+        pass
+        # with open(self._storage_file, 'wb') as file:
+        #     pickle.dump(data, file)
+        # with open(self._storage_file, 'w') as file:
+        #     json.dump(self._data, file, indent=4)
 
     def load(self):
-        try:
-            with open(self._storage_file) as file:
-                self._data = json.load(file)
-        except FileNotFoundError:
-            logger.warning(
-                f"File '{self._storage_file}' wasn't found. "
-                f"This is normal only if the script is run for the first time and the data has not been collected yet"
-            )
-            self._data = {}
+        self._data = {}
+        # try:
+        #     with open(self._storage_file) as file:
+        #         self._data = json.load(file)
+        # except FileNotFoundError:
+        #     logger.warning(
+        #         f"File '{self._storage_file}' wasn't found. "
+        #         f"This is normal only if the script is run for the first time and the data has not been collected yet"
+        #     )
+        #     self._data = {}
