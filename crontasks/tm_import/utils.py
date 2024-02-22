@@ -1,3 +1,4 @@
+import datetime as dt
 import traceback
 from zipfile import ZipFile
 from bs4 import BeautifulSoup
@@ -72,31 +73,22 @@ def parser(uspto_base_url, filename):
 			print()
 
 		r = rr['case-file']
-		if not(type(r['transaction-date']) is str and len(r['transaction-date']) == 8):
-			print() # TODO: a place for a debugger breakpoint (an unusual case for analysis)
+		transaction_date = r['transaction-date']
+		if not(type(transaction_date) is str and len(transaction_date) == 8):
+			print(f"unusual date format: {transaction_date}") # a place for a debugger breakpoint (an unusual case for analysis)
 		try:
 			row = {
 				'serial-number': r['serial-number'],
 				'mark':r['case-file-header']['mark-identification'],
+				'owners': _normalize_owners(r['case-file-owners']['case-file-owner']),
 				'status': int(r['case-file-header']['status-code']),
-				'transaction-date': r['transaction-date'],
-				'statements': _normalize_statements(r.get('case-file-statements')),
+				'transaction-date': transaction_date,
+				'statements': _filter_statements(_normalize_statements(r.get('case-file-statements'))),
 			}
 
 		except:
 			errors.append(["No serial, or no TM, skipping", r])
 			continue
-
-		try:
-			st = r['case-file-statements']['case-file-statement']
-			if type(st) == dict:
-				statements = st
-			else:
-				statements = {s['type-code']:s['text'] for s in st}
-				statements_txt = ' '.join(statements.values())
-				row['statements'] = statements
-		except:
-			pass ### if there are no case file statements, just return TM and serial number
 
 		yield(row)
 
@@ -124,9 +116,27 @@ def add_processed_file(processed_files_file, processed_files, new_processed_file
 def _normalize_statements(statements):
 	if statements is None:
 		return {}
-	if type(statements['case-file-statement']) is dict:
-		return {
-			statements['case-file-statement']['type-code']: statements['case-file-statement']['text']
-		}
+	st = statements['case-file-statement']
+	if type(st) is dict:
+		return {st['type-code']: st['text']}
 	else:
-		return statements
+		return {s['type-code']: s['text'] for s in st}
+
+
+
+def _filter_statements(statements):
+	def filter_func(tuple_elem):
+		return tuple_elem[0].startswith('GS') or tuple_elem[0].startswith('PM')
+
+	return dict(filter(filter_func, statements.items()))
+
+def _normalize_owners(owners):
+	if type(owners) is dict:
+		return [owners]
+	return owners
+def parse_date_string(date: str):
+	return dt.date(
+		year=int(date[:4]),
+		month=int(date[4:6]),
+		day=int(date[6:8])
+	)

@@ -27,8 +27,7 @@ gen_url = 'https://idyllic.ngrok.io/api/generate'
 data_dir = os.path.join(script_dir, "tm_import/")
 live_tm_codes_file = os.path.join(data_dir, 'live_tm_codes_from_markavo_com.txt')
 processed_files_file = os.path.join(data_dir, 'processed_files.txt')
-trademarks_storage_file = os.path.join(data_dir, 'trademarks_storage.json')
-db_connection_string = 'sqlite:////home/stephen/db1.db'
+trademarks_storage_db = 'sqlite:///' + os.path.join(data_dir, 'trademarks_DB.sqlite')
 log_filename = os.path.join(data_dir, 'logs/tm_import.log')
 
 os.makedirs(data_dir, exist_ok=True)
@@ -51,8 +50,7 @@ html = requests.get(uspto_base_url).content
 files = [href for href in utils.extract_href_links(html) if '.zip' in href]
 files.reverse() ### do the newest first
 processed_files = utils.read_processed_files(processed_files_file)
-storage = models.TrademarkStorage(trademarks_storage_file)
-storage.load()
+storage = models.TrademarkStorage(trademarks_storage_db, live_codes)
 
 
 import_payload = {'reader': 'SimpleReader',
@@ -74,25 +72,21 @@ for f in files[:1]:
 	if f in processed_files:
 		continue ### don't ingest twice
 
-
 	for i, tm in enumerate(utils.parser(uspto_base_url, f)):
-		if tm['status'] in live_codes:
-			storage.update(tm)
-		else:
-			storage.remove(tm)
+		storage.add_trademark(tm)
 		print('.', end='')
-		if i % 10 == 9:
-			txt = json.dumps(storage._data)
-			storage._data = {}
-			payload = copy.deepcopy(import_payload)
-			payload['fileBytes'].append(base64.b64encode(txt.encode('utf-8')).decode('ascii'))
-			payload['fileNames'].append(tm['mark'] + '.json')
-			try:
-				res = requests.post(url, data=json.dumps(payload))
-				print(f'\nsent with status: {res.status_code}, text: {res.text}')
-			except Exception as e:
-				print("POST failed") ### is the API down?
-			logger.info(f"{i} done")
-	storage.dump()
+		if (i+1) % 100 == 0:
+			logger.info(f"\n{i+1} done")
+
 	utils.add_processed_file(processed_files_file, processed_files, f)
 
+# txt = json.dumps(storage._data)
+# storage._data = {}
+# payload = copy.deepcopy(import_payload)
+# payload['fileBytes'].append(base64.b64encode(txt.encode('utf-8')).decode('ascii'))
+# payload['fileNames'].append(tm['mark'] + '.json')
+# try:
+# 	res = requests.post(url, data=json.dumps(payload))
+# 	print(f'\nsent with status: {res.status_code}, text: {res.text}')
+# except Exception as e:
+# 	print("POST failed") ### is the API down?

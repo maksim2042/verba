@@ -26,3 +26,4 @@ pandas
 xmltodict
 beautifulsoup4
 sqlalchemy
+sqlalchemy-utils
