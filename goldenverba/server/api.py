@@ -717,3 +717,15 @@ async def delete_document(payload: GetDocumentPayload):
 
     manager.delete_document_by_id(payload.document_id)
     return JSONResponse(content={})
+
+
+@app.post("/api/delete_many_documents")
+async def delete_document(payload: GetDocumentPayload):
+    if production:
+        return JSONResponse(status_code=200, content={})
+
+    msg.info(f"Document IDs received: {payload.document_ids}")
+
+    for document_id in payload.document_ids:
+        manager.delete_document_by_id(document_id)
+    return JSONResponse(content={})
