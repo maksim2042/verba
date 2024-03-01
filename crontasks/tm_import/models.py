@@ -1,4 +1,7 @@
+import base64
+import copy
 import datetime as dt
+import json
 import logging
 from typing import List
 
@@ -50,6 +53,10 @@ class TrademarkStatement(Base):
 
     trademark: Mapped["Trademark"] = relationship(back_populates="statements")
 
+    __table_args__ = (
+        sqlalchemy.UniqueConstraint('trademark_serial', 'type_code'),
+    )
+
 
 class TrademarkFiling(Base):
     __tablename__ = "filing"
@@ -62,6 +69,9 @@ class TrademarkFiling(Base):
 
     trademark: Mapped["Trademark"] = relationship(back_populates="filings")
 
+    __table_args__ = (
+        sqlalchemy.UniqueConstraint('trademark_serial', 'status', 'date'),
+    )
 
 class TrademarkStorage:
     def __init__(self, connection_string, alive_tm_statuses):
@@ -74,8 +84,9 @@ class TrademarkStorage:
         TrademarkStatement.__table__.create(bind=self._engine, checkfirst=True)
         TrademarkFiling.__table__.create(bind=self._engine, checkfirst=True)
         self._alive_tm_statuses = alive_tm_statuses
+        self._session = Session(self._engine)
 
-    def add_trademark(self, tm):
+    def add_trademark(self, tm, session):
         serial_number = tm['serial-number']
         mark = tm['mark']
         status = tm['status']
@@ -87,36 +98,84 @@ class TrademarkStorage:
         assert type(status) is int
         assert type(transaction_date) is str and len(transaction_date) == 8
 
+
+        session.execute(
+            sqlalchemy.dialects.sqlite.insert(Trademark).
+            values(
+                serial_number=serial_number,
+                mark=mark,
+                owners=list(set([o.get('party-name') for o in owners]) - {None})
+            ).
+            on_conflict_do_nothing()
+        )
+
+        for code, description in statements.items():
+            if description is not None:
+                session.execute(
+                    sqlalchemy.dialects.sqlite.insert(TrademarkStatement).
+                    values(
+                        trademark_serial=serial_number,
+                        type_code=code,
+                        description=description,
+                    ).
+                    on_conflict_do_nothing()
+                )
+
+        session.execute(
+            sqlalchemy.dialects.sqlite.insert(TrademarkFiling).
+            values(
+                trademark_serial=serial_number,
+                status=status,
+                alive=status in self._alive_tm_statuses,
+                date=utils.parse_date_string(transaction_date),
+            ).
+            on_conflict_do_nothing()
+        )
+
+    def fetch_data_for_RAG(self):
+        statement = """
+            SELECT
+                tm.*, 
+                json_group_array(
+                    json_object( 
+                        'code', type_code, 
+                        'description', description
+                    )
+                ) statement, 
+                f.status, 
+                f.alive,
+                f.MaxDate
+            FROM
+                trademark as tm
+            LEFT JOIN 
+                statement as st
+            ON st.trademark_serial = tm.serial_number 
+            LEFT JOIN 
+                (SELECT  *, MAX(date) MaxDate FROM filing GROUP BY trademark_serial) f
+            ON tm.serial_number = f.trademark_serial 
+            GROUP BY
+                serial_number
+        """
         with Session(self._engine) as session:
-            tm = session.query(Trademark).where(Trademark.serial_number == serial_number).first()
-            if tm is None:
-                tm = Trademark(
-                    serial_number=serial_number,
-                    mark=mark,
-                    owners=list(set([o['party-name'] for o in owners]))
-                )
-                session.add(tm)
+            for i, res in enumerate(session.execute(sqlalchemy.text(statement))):
+                serial, name, owners, statements, status, alive, date = res
+                alive = bool(alive)
+                if not alive:
+                    continue
+                owners = json.loads(owners)
+                statements = json.loads(statements)
+                yield {
+                    'serial-number': serial,
+                    'trademark-name': name,
+                    'owners': owners,
+                    'statements': statements,
+                    'status': status,
+                    'alive': alive,
+                    'filing-date': date
+                }
 
-            for code, description in statements.items():
-                if all([tc.type_code != code for tc in tm.typecodes]):
-                    tm.typecodes.append(
-                        TrademarkStatement(
-                            type_code=code,
-                            description=description,
-                        )
-                    )
-
-            filing_date = utils.parse_date_string(transaction_date)
-            if all([filing.date != filing_date for filing in tm.filings]):
-                tm.filings.append(
-                    TrademarkFiling(
-                        status=status,
-                        alive=status in self._alive_tm_statuses,
-                        date=filing_date
-                    )
-                )
-
-            session.commit()
+    def flush(self):
+        self._session.commit()
 
 
 class TrademarkStorageOLD:

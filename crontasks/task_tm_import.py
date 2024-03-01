@@ -1,92 +1,104 @@
-import copy
+import argparse
 import logging
-import random
+import datetime as dt
+import logging
+import os
 import sys
+from enum import Enum
 
 import requests
-import traceback
-import json
-import base64
-import os
-from io import StringIO
-import pandas as pd
-import sqlalchemy
-import json
+from sqlalchemy.orm import Session
 
 from crontasks.tm_import import models
+from crontasks.tm_import import verba
 from crontasks.tm_import import utils
 
+class PARSER_MODES(Enum):
+    DATA_COLLECTION = 'data-collection'
+    INITIAL_SENDING = 'initial-sending'
+    TEST_GET_ALL_DOCUMENTS = 'test-get-all-docs'
+    TEST_DELETE_ALL_DOCUMENTS = 'test-del-all-docs'
 
-script_dir = os.path.dirname(__file__)
-uspto_base_url = 'https://bulkdata.uspto.gov/data/trademark/dailyxml/applications/'
-url = "https://idyllic.ngrok.io/api/load_data"
-get_url = "https://idyllic.ngrok.io/api/get_all_documents"
-delete_url = 'https://idyllic.ngrok.io/api/delete_document'
-query_url = 'https://idyllic.ngrok.io/api/query'
-gen_url = 'https://idyllic.ngrok.io/api/generate'
-data_dir = os.path.join(script_dir, "tm_import/")
-live_tm_codes_file = os.path.join(data_dir, 'live_tm_codes_from_markavo_com.txt')
-processed_files_file = os.path.join(data_dir, 'processed_files.txt')
-trademarks_storage_db = 'sqlite:///' + os.path.join(data_dir, 'trademarks_DB.sqlite')
-log_filename = os.path.join(data_dir, 'logs/tm_import.log')
-
-os.makedirs(data_dir, exist_ok=True)
-os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-logging.basicConfig(filename=log_filename, encoding='utf-8', level=logging.INFO)
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-logger = logging.getLogger(__name__)
-
-error_log = open(data_dir + 'errors.xml', 'a', buffering=1)
-
-live_codes = utils.read_live_tm_codes(live_tm_codes_file)
+SCRIPT_DIR = os.path.dirname(__file__)
+USPTO_BASE_URL = 'https://bulkdata.uspto.gov/data/trademark/dailyxml/applications/'
+DATA_DIR = os.path.join(SCRIPT_DIR, "tm_import/")
+LIVE_TM_CODES_FILEPATH = os.path.join(DATA_DIR, 'live_tm_codes_from_markavo_com.txt')
+PROCESSED_FILES_FILEPATH = os.path.join(DATA_DIR, 'processed_files.txt')
+DB_CONNECTION_STRING = 'sqlite:///' + os.path.join(DATA_DIR, 'trademarks_DB.sqlite')
+LOG_FILEPATH = os.path.join(DATA_DIR, 'logs/tm_import.log')
+RECORDS_PER_FILE_TO_SEND = 10
+FILES_PER_REQUEST_TO_SEND = 10
 
 
-# dbEngine = sqlalchemy.create_engine(trademarks_db_connection_string)
+def thread_processing(data):
+    filename = data
+    log_prefix = f"{filename}: "
+    if filename in processed_files:
+        logger.info(f"{log_prefix}Skipping {filename}...")
+        return
+    logger.info(f"{log_prefix}Starting to process file {filename}:")
+    time1 = dt.datetime.now()
+    i = -1
+    with Session(storage._engine) as session:
+        for i, tm in enumerate(utils.parser(USPTO_BASE_URL, filename)):
+            storage.add_trademark(tm, session)
+            if (i + 1) % 10000 == 0:
+                session.commit()
+                logger.info(f"{log_prefix}{i + 1} done ({dt.datetime.now() - time1} have passed)")
+        session.commit()
+    utils.add_processed_file(PROCESSED_FILES_FILEPATH, filename)
+    logger.info(f"{log_prefix}finished successfully (upserted {i+1} records)")
 
-#### get the zip file URLs
-html = requests.get(uspto_base_url).content
 
-# Extract href links from the HTML file
-files = [href for href in utils.extract_href_links(html) if '.zip' in href]
-files.reverse() ### do the newest first
-processed_files = utils.read_processed_files(processed_files_file)
-storage = models.TrademarkStorage(trademarks_storage_db, live_codes)
+try:
+    os.makedirs(os.path.dirname(LOG_FILEPATH), exist_ok=True)
+    logging.basicConfig(filename=LOG_FILEPATH, encoding='utf-8', level=logging.INFO)
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+    logger = logging.getLogger(__name__)
+
+    parser = argparse.ArgumentParser(prog='Trademarks parser')
+    parser.add_argument('-m', '--mode', choices=[e.value for e in PARSER_MODES])
+    parser.add_argument('-d', '--db_cstring')
+    args = parser.parse_args()
+    mode=PARSER_MODES(args.mode)
+    db_cstring = args.db_cstring if args.db_cstring else  DB_CONNECTION_STRING
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    logger.info(f"Trademarks importer script has been started (mode={mode})")
+    live_codes = utils.read_live_tm_codes(LIVE_TM_CODES_FILEPATH)
+    storage = models.TrademarkStorage(db_cstring, live_codes)
+
+    if mode == PARSER_MODES.DATA_COLLECTION:
+        html = requests.get(USPTO_BASE_URL).content
+        # Extract href links from the HTML file
+        files = [href for href in utils.extract_href_links(html) if '.zip' in href]
+        processed_files = utils.read_processed_files(PROCESSED_FILES_FILEPATH)
+        files = sorted(set(files) - set(processed_files), reverse=True)
+        # for f in ['apc18840407-20231231-04.zip']:
+        for f in files:
+            thread_processing(f)
+
+    elif mode == PARSER_MODES.INITIAL_SENDING:
+        data_to_send = []
+        for i, data in enumerate(storage.fetch_data_for_RAG()):
+            data_to_send.append(data)
+            if (i + 1) % RECORDS_PER_FILE_TO_SEND == 0:
+                verba.send_to_RAG(data_to_send, 'Trademark', lambda x: f"{x['serial-number']} {x['trademark-name']}")
+                data_to_send.clear()
+                logger.info(f"{i} records have been sent to Verba")
+
+    elif mode == PARSER_MODES.TEST_GET_ALL_DOCUMENTS:
+        print(verba.search_documents('JUDITH', 'Trademark'))
+
+    elif mode == PARSER_MODES.TEST_DELETE_ALL_DOCUMENTS:
+        verba.delete_by_filename_query('71073603', 'Trademark')
 
 
-import_payload = {'reader': 'SimpleReader',
-	 'chunker': 'TokenChunker',
-	 'embedder': 'MiniLMEmbedder',
-	 'fileBytes': [],
-	 'fileNames': [],
-	 'filePath': '',
-	 'document_type': 'CT',
-	 'chunkUnits': 100,
-	 'chunkOverlap': 25,
-	}
 
-# for f in ['apc18840407-20231231-81.zip']:#files[:1]:
-# for f in ['apc18840407-20231231-80.zip']:#files[:1]:
-for f in files[:1]:
-# for f in files[:44]:
-	logger.info(f"Processing file {f}:")
-	if f in processed_files:
-		continue ### don't ingest twice
 
-	for i, tm in enumerate(utils.parser(uspto_base_url, f)):
-		storage.add_trademark(tm)
-		print('.', end='')
-		if (i+1) % 100 == 0:
-			logger.info(f"\n{i+1} done")
 
-	utils.add_processed_file(processed_files_file, processed_files, f)
 
-# txt = json.dumps(storage._data)
-# storage._data = {}
-# payload = copy.deepcopy(import_payload)
-# payload['fileBytes'].append(base64.b64encode(txt.encode('utf-8')).decode('ascii'))
-# payload['fileNames'].append(tm['mark'] + '.json')
-# try:
-# 	res = requests.post(url, data=json.dumps(payload))
-# 	print(f'\nsent with status: {res.status_code}, text: {res.text}')
-# except Exception as e:
-# 	print("POST failed") ### is the API down?
+except:
+    logger.exception('')
+    raise

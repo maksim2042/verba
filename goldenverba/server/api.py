@@ -162,6 +162,10 @@ class GetDocumentPayload(BaseModel):
     document_id: str
 
 
+class GetDocumentsPayload(BaseModel):
+    document_ids: list[str]
+
+
 class LoadPayload(BaseModel):
     reader: str
     chunker: str
@@ -720,7 +724,7 @@ async def delete_document(payload: GetDocumentPayload):
 
 
 @app.post("/api/delete_many_documents")
-async def delete_document(payload: GetDocumentPayload):
+async def delete_document(payload: GetDocumentsPayload):
     if production:
         return JSONResponse(status_code=200, content={})
 
