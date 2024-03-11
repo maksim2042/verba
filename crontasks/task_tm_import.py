@@ -33,7 +33,7 @@ DB_CONNECTION_STRING = (
     '/TrademarksDB?sslmode=require'
 )
 #DB_CONNECTION_STRING = 'postgresql://postgres:cHLa9RzH9QV5rbc@idyllic-trademarks.c7ukoiuym4og.us-east-2.rds.amazonaws.com:5432/test_from_sqlite?sslmode=allow'
-
+RDS_CERT_PATH = "../aws-certs-global-bundle.pem"
 LOG_FILEPATH = os.path.join(DATA_DIR, 'logs/tm_import.log')
 RECORDS_PER_FILE_TO_SEND = 10
 FILES_PER_REQUEST_TO_SEND = 10
@@ -77,7 +77,6 @@ try:
     logger.info(f"Trademarks importer script has been started (mode={mode})")
     live_codes = utils.read_live_tm_codes(LIVE_TM_CODES_FILEPATH)
 
-    RDS_CERT_PATH = "aws-certs-global-bundle.pem"
     ssl_context = ssl.create_default_context(cafile=RDS_CERT_PATH)
     ssl_context.verify_mode = ssl.CERT_REQUIRED
 
