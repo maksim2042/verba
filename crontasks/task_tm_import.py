@@ -10,9 +10,9 @@ from enum import Enum
 import requests
 from sqlalchemy.orm import Session
 
-from crontasks.tm_import import models
-from crontasks.tm_import import verba
-from crontasks.tm_import import utils
+from tm_import import models
+from tm_import import verba
+from tm_import import utils
 
 class PARSER_MODES(Enum):
     DATA_COLLECTION = 'data-collection'

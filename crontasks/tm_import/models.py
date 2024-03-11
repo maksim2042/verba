@@ -16,7 +16,7 @@ from sqlalchemy.orm import (
 from sqlalchemy_utils import create_database
 from sqlalchemy_utils import database_exists
 
-from crontasks.tm_import import utils
+from tm_import import utils
 
 logger = logging.getLogger(__name__)
 
