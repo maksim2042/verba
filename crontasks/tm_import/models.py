@@ -27,7 +27,7 @@ class Trademark(Base):
     __tablename__ = "trademark"
 
     serial_number: Mapped[str] = mapped_column(sqlalchemy.String(32), primary_key=True)
-    mark: Mapped[str] = mapped_column(sqlalchemy.String(128))
+    mark: Mapped[str] = mapped_column(sqlalchemy.TEXT)
     owners = mapped_column(sqlalchemy.JSON)
 
     statements: Mapped[List["TrademarkStatement"]] = relationship(
@@ -74,8 +74,8 @@ class TrademarkFiling(Base):
     )
 
 class TrademarkStorage:
-    def __init__(self, connection_string, alive_tm_statuses):
-        self._engine = sqlalchemy.create_engine(connection_string, echo=False)
+    def __init__(self, connection_string, alive_tm_statuses, connect_args={}):
+        self._engine = sqlalchemy.create_engine(connection_string, echo=False, connect_args=connect_args)
         if not database_exists(self._engine.url):
             create_database(self._engine.url)
         else:
@@ -100,7 +100,7 @@ class TrademarkStorage:
 
 
         session.execute(
-            sqlalchemy.dialects.sqlite.insert(Trademark).
+            sqlalchemy.dialects.postgresql.insert(Trademark).
             values(
                 serial_number=serial_number,
                 mark=mark,
@@ -112,7 +112,7 @@ class TrademarkStorage:
         for code, description in statements.items():
             if description is not None:
                 session.execute(
-                    sqlalchemy.dialects.sqlite.insert(TrademarkStatement).
+                    sqlalchemy.dialects.postgresql.insert(TrademarkStatement).
                     values(
                         trademark_serial=serial_number,
                         type_code=code,
@@ -122,7 +122,7 @@ class TrademarkStorage:
                 )
 
         session.execute(
-            sqlalchemy.dialects.sqlite.insert(TrademarkFiling).
+            sqlalchemy.dialects.postgresql.insert(TrademarkFiling).
             values(
                 trademark_serial=serial_number,
                 status=status,

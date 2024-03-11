@@ -3,6 +3,7 @@ import logging
 import datetime as dt
 import logging
 import os
+import ssl
 import sys
 from enum import Enum
 
@@ -24,7 +25,15 @@ USPTO_BASE_URL = 'https://bulkdata.uspto.gov/data/trademark/dailyxml/application
 DATA_DIR = os.path.join(SCRIPT_DIR, "tm_import/")
 LIVE_TM_CODES_FILEPATH = os.path.join(DATA_DIR, 'live_tm_codes_from_markavo_com.txt')
 PROCESSED_FILES_FILEPATH = os.path.join(DATA_DIR, 'processed_files.txt')
-DB_CONNECTION_STRING = 'sqlite:///' + os.path.join(DATA_DIR, 'trademarks_DB.sqlite')
+# DB_CONNECTION_STRING = 'sqlite:///' + os.path.join(DATA_DIR, 'trademarks_DB.sqlite')
+DB_CONNECTION_STRING = (
+    'postgresql://'
+    'postgres:cHLa9RzH9QV5rbc@'
+    'idyllic-trademarks.c7ukoiuym4og.us-east-2.rds.amazonaws.com:5432'
+    '/TrademarksDB?sslmode=require'
+)
+#DB_CONNECTION_STRING = 'postgresql://postgres:cHLa9RzH9QV5rbc@idyllic-trademarks.c7ukoiuym4og.us-east-2.rds.amazonaws.com:5432/test_from_sqlite?sslmode=allow'
+
 LOG_FILEPATH = os.path.join(DATA_DIR, 'logs/tm_import.log')
 RECORDS_PER_FILE_TO_SEND = 10
 FILES_PER_REQUEST_TO_SEND = 10
@@ -67,7 +76,16 @@ try:
 
     logger.info(f"Trademarks importer script has been started (mode={mode})")
     live_codes = utils.read_live_tm_codes(LIVE_TM_CODES_FILEPATH)
-    storage = models.TrademarkStorage(db_cstring, live_codes)
+
+    RDS_CERT_PATH = "aws-certs-global-bundle.pem"
+    ssl_context = ssl.create_default_context(cafile=RDS_CERT_PATH)
+    ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+    storage = models.TrademarkStorage(
+        db_cstring,
+        live_codes,
+        connect_args={"ssl": ssl_context}
+    )
 
     if mode == PARSER_MODES.DATA_COLLECTION:
         html = requests.get(USPTO_BASE_URL).content
@@ -75,6 +93,8 @@ try:
         files = [href for href in utils.extract_href_links(html) if '.zip' in href]
         processed_files = utils.read_processed_files(PROCESSED_FILES_FILEPATH)
         files = sorted(set(files) - set(processed_files), reverse=True)
+        print(files)
+        exit(-23)
         # for f in ['apc18840407-20231231-04.zip']:
         for f in files:
             thread_processing(f)
