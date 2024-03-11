@@ -29,32 +29,11 @@ class Trademark(Base):
     serial_number: Mapped[str] = mapped_column(sqlalchemy.String(32), primary_key=True)
     mark: Mapped[str] = mapped_column(sqlalchemy.TEXT)
     owners = mapped_column(sqlalchemy.JSON)
+    statements = mapped_column(sqlalchemy.JSON)
 
-    statements: Mapped[List["TrademarkStatement"]] = relationship(
-        back_populates="trademark",
-        cascade = "all, delete-orphan"
-    )
     filings: Mapped[List["TrademarkFiling"]] = relationship(
         back_populates="trademark",
         cascade="all, delete-orphan"
-    )
-
-    # def __repr__(self) -> str:
-    #     return f"User(id={self.id!r}, name={self.name!r}, fullname={self.fullname!r})"
-
-
-class TrademarkStatement(Base):
-    __tablename__ = "statement"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    trademark_serial: Mapped[str] = mapped_column(sqlalchemy.ForeignKey("trademark.serial_number"))
-    type_code: Mapped[str] = mapped_column(sqlalchemy.String(32))
-    description: Mapped[str] = mapped_column(sqlalchemy.Text)
-
-    trademark: Mapped["Trademark"] = relationship(back_populates="statements")
-
-    __table_args__ = (
-        sqlalchemy.UniqueConstraint('trademark_serial', 'type_code'),
     )
 
 
@@ -81,7 +60,6 @@ class TrademarkStorage:
         else:
             self._engine.connect()
         Trademark.__table__.create(bind=self._engine, checkfirst=True)
-        TrademarkStatement.__table__.create(bind=self._engine, checkfirst=True)
         TrademarkFiling.__table__.create(bind=self._engine, checkfirst=True)
         self._alive_tm_statuses = alive_tm_statuses
         self._session = Session(self._engine)
@@ -104,22 +82,11 @@ class TrademarkStorage:
             values(
                 serial_number=serial_number,
                 mark=mark,
-                owners=list(set([o.get('party-name') for o in owners]) - {None})
+                owners=list(set([o.get('party-name') for o in owners]) - {None}),
+                statements=statements
             ).
             on_conflict_do_nothing()
         )
-
-        for code, description in statements.items():
-            if description is not None:
-                session.execute(
-                    sqlalchemy.dialects.postgresql.insert(TrademarkStatement).
-                    values(
-                        trademark_serial=serial_number,
-                        type_code=code,
-                        description=description,
-                    ).
-                    on_conflict_do_nothing()
-                )
 
         session.execute(
             sqlalchemy.dialects.postgresql.insert(TrademarkFiling).
