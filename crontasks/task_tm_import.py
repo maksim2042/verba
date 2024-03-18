@@ -1,18 +1,20 @@
 import argparse
-import logging
 import datetime as dt
 import logging
 import os
-import ssl
 import sys
 from enum import Enum
 
 import requests
+from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
+from crontasks.tm_import.verba_native import VerbaNativeAdapter
 from tm_import import models
-from tm_import import verba
+from tm_import import verba_api
 from tm_import import utils
+
+load_dotenv()
 
 class PARSER_MODES(Enum):
     DATA_COLLECTION = 'data-collection'
@@ -26,16 +28,14 @@ DATA_DIR = os.path.join(SCRIPT_DIR, "tm_import/")
 LIVE_TM_CODES_FILEPATH = os.path.join(DATA_DIR, 'live_tm_codes_from_markavo_com.txt')
 PROCESSED_FILES_FILEPATH = os.path.join(DATA_DIR, 'processed_files.txt')
 # DB_CONNECTION_STRING = 'sqlite:///' + os.path.join(DATA_DIR, 'trademarks_DB3.sqlite')
-DB_CONNECTION_STRING = (
-    'postgresql://'
-    'postgres:cHLa9RzH9QV5rbc@'
-    'idyllic-trademarks.c7ukoiuym4og.us-east-2.rds.amazonaws.com:5432'
-    '/TrademarksDB?sslmode=allow'
-)
-#DB_CONNECTION_STRING = 'postgresql://postgres:cHLa9RzH9QV5rbc@idyllic-trademarks.c7ukoiuym4og.us-east-2.rds.amazonaws.com:5432/test_from_sqlite?sslmode=allow'
+# DB_CONNECTION_STRING = (
+#     'postgresql://'
+#     'postgres:cHLa9RzH9QV5rbc@'
+#     'idyllic-trademarks.c7ukoiuym4og.us-east-2.rds.amazonaws.com:5432'
+#     '/TrademarksDB?sslmode=allow'
+# )
 LOG_FILEPATH = os.path.join(DATA_DIR, 'logs/tm_import.log')
-RECORDS_PER_FILE_TO_SEND = 10
-FILES_PER_REQUEST_TO_SEND = 10
+RECORDS_PER_REQUEST_TO_SEND = 100
 
 
 def thread_processing(data):
@@ -69,17 +69,14 @@ try:
     parser.add_argument('-d', '--db_cstring')
     args = parser.parse_args()
     mode=PARSER_MODES(args.mode)
-    db_cstring = args.db_cstring if args.db_cstring else  DB_CONNECTION_STRING
+    db_cstring = args.db_cstring if args.db_cstring else os.getenv('TRADEMARKS_DB_CSTRING')
 
     os.makedirs(DATA_DIR, exist_ok=True)
 
     logger.info(f"Trademarks importer script has been started (mode={mode})")
     live_codes = utils.read_live_tm_codes(LIVE_TM_CODES_FILEPATH)
 
-    storage = models.TrademarkStorage(
-        db_cstring,
-        live_codes,
-    )
+    storage = models.TrademarkStorage(db_cstring, live_codes)
 
     if mode == PARSER_MODES.DATA_COLLECTION:
         html = requests.get(USPTO_BASE_URL).content
@@ -87,26 +84,31 @@ try:
         files = [href for href in utils.extract_href_links(html) if '.zip' in href]
         processed_files = utils.read_processed_files(PROCESSED_FILES_FILEPATH)
         files = sorted(set(files) - set(processed_files), reverse=True)
-        print(files)
-        exit(-23)
         # for f in ['apc18840407-20231231-04.zip']:
         for f in files:
             thread_processing(f)
 
     elif mode == PARSER_MODES.INITIAL_SENDING:
-        data_to_send = []
-        for i, data in enumerate(storage.fetch_data_for_RAG()):
-            data_to_send.append(data)
-            if (i + 1) % RECORDS_PER_FILE_TO_SEND == 0:
-                verba.send_to_RAG(data_to_send, 'Trademark', lambda x: f"{x['serial-number']} {x['trademark-name']}")
-                data_to_send.clear()
-                logger.info(f"{i} records have been sent to Verba")
+        verba = VerbaNativeAdapter()
+        docs_to_send = []
+        names_of_docs_to_send = []
+        i = -1
+        verba.delete_all_by_doctype('')
+        for i, data in enumerate(storage.fetch_trademarks_data_from_db()):
+            docs_to_send.append(data.as_json_string())
+            names_of_docs_to_send.append(data.name_in_verba)
+            if (i + 1) % RECORDS_PER_REQUEST_TO_SEND == 0:
+                docs, chunks = verba.upload_documents("Trademark", docs_to_send, names_of_docs_to_send)
+                docs_to_send.clear()
+                names_of_docs_to_send.clear()
+                logger.info(f"{docs} docs and {chunks} chunks have been inserted to Verba (total {i+1} records)")
+        logger.info(f"Finished. {i+1} records total have been inserted to Verba")
 
     elif mode == PARSER_MODES.TEST_GET_ALL_DOCUMENTS:
-        print(verba.search_documents('JUDITH', 'Trademark'))
+        print(verba_api.search_documents('JUDITH', 'Trademark'))
 
     elif mode == PARSER_MODES.TEST_DELETE_ALL_DOCUMENTS:
-        verba.delete_by_filename_query('71073603', 'Trademark')
+        verba_api.delete_by_filename_query('71073603', 'Trademark')
 
 
 

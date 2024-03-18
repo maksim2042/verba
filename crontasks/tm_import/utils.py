@@ -1,5 +1,6 @@
 import datetime as dt
 import logging
+import pathlib
 from io import BytesIO
 from urllib.request import urlopen
 from zipfile import ZipFile
@@ -135,3 +136,10 @@ def parse_date_string(date: str):
         month=int(date[4:6]),
         day=int(date[6:8])
     )
+
+
+def load_sql_template(name):
+    current_dir = pathlib.Path(__file__).parent.resolve()
+    sql_file = current_dir / 'sql' / name
+    with open(sql_file) as f:
+        return f.read()
