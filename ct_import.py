@@ -36,18 +36,19 @@ def delete_all(docs):
 		}
 		requests.post(delete_url,data=json.dumps(delete_payload))
 
-query_payload = {
-  "query": "What clinical trials do you have for use of exercise to prevent heart attacks?"
-}
-requests.post(query_url,data=json.dumps(query_payload))
 
-{'query': 'What clinical trials do you have for use of exercise to prevent heart attacks?',
- 'context': "result of retrieved documents goes here",
- 'conversation': [
- 		{'type': 'user', 'content':'string', 'typewriter':'false'},
- 		{'type': 'system', 'content':'string', 'typewriter':'false'}
- ]
-}
+#query_payload = {
+#  "query": "What clinical trials do you have for use of exercise to prevent heart attacks?"
+#}
+#requests.post(query_url,data=json.dumps(query_payload))
+#
+#{'query': 'What clinical trials do you have for use of exercise to prevent heart attacks?',
+# 'context': "result of retrieved documents goes here",
+# 'conversation': [
+# 		{'type': 'user', 'content':'string', 'typewriter':'false'},
+# 		{'type': 'system', 'content':'string', 'typewriter':'false'}
+# ]
+#}
 
 
 
@@ -60,12 +61,12 @@ def json2txt(js):
 	desc = js['FullStudy']['Study']['ProtocolSection']['DescriptionModule']
 	desc_txt = "DESCRIPTION >>>" + desc.get('BriefSummary','') + desc.get('DetailedDescription','')+"\n"
 
-	cond = js['FullStudy']['Study']['ProtocolSection']['ConditionsModule']+"\n"
+	cond = json.dumps(js['FullStudy']['Study']['ProtocolSection']['ConditionsModule'])+"\n"
 	#cond_txt = ','.join(cond['ConditionList'].get('Condition'))
 
-	design = js['FullStudy']['Study']['ProtocolSection']['DesignModule']+"\n"
+	design = json.dumps(js['FullStudy']['Study']['ProtocolSection']['DesignModule'])+"\n"
 
-	eligibility = js['FullStudy']['Study']['ProtocolSection']['EligibilityModule']+"\n"
+	eligibility = json.dumps(js['FullStudy']['Study']['ProtocolSection']['EligibilityModule'])+"\n"
 	#eligibility_txt = "ELIGIBILIUTY >>>" + eligibility.get('EligibilityCriteria','')
 
 	return(idd_txt + desc_txt + json.dumps(cond)+ json.dumps(eligibility)+json.dumps(design))
@@ -81,10 +82,13 @@ payload = {'reader': 'SimpleReader',
 	 'chunkUnits': 100,
 	 'chunkOverlap': 25,
 	}
+taboo = ['raw_data/NCT0549xxxx','raw_data/NCT0158xxxx', 'raw_data/NCT0375xxxx']
 
 # that directory
 for main_dir in os.listdir(data_dir):
 	directory = data_dir+"/"+main_dir
+	if directory in taboo: continue ### if we did this already
+
 	print("INGESTING", main_dir)	
 	for filename in os.listdir(directory):
 		f = os.path.join(directory, filename)
