@@ -7,9 +7,9 @@ import json
 
 client = weaviate.Client(
     url = "https://ohn-sandbox-gtpeorx0.weaviate.network",  # Replace with your endpoint
-    auth_client_secret=weaviate.auth.AuthApiKey(api_key="xv0JD7TPpk0YPKMGVL7i2BIo74Uk5jg0Nbfi"),  # Replace w/ your Weaviate instance API key
+    auth_client_secret=weaviate.auth.AuthApiKey(api_key="WEAVIATE_API_KEY"),  # Replace w/ your Weaviate instance API key
     additional_headers = {
-        "X-OpenAI-Api-Key": "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"  # Replace with your inference API key
+        "X-OpenAI-Api-Key": "OPENAI_KEY"  # Replace with your inference API key
     }
 )
 
@@ -21,9 +21,19 @@ class_obj = {
         "generative-openai": {}  # Ensure the `generative-openai` module is used for generative queries
     }
 }
-
 client.schema.create_class(class_obj)
 
+class_obj2 = {
+    'class': 'CT',
+    'vectorizer':"text2vec-openai",
+     "moduleConfig": {
+        "text2vec-openai": {},
+        "generative-openai": {}  # Ensure the `generative-openai` module is used for generative queries
+    }   
+}
+
+
+client.schema.create_class(class_obj2)
 
 
 
