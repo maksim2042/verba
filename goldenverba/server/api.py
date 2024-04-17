@@ -1,3 +1,5 @@
+import datetime
+
 from fastapi import FastAPI, Request, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -733,3 +735,15 @@ async def delete_documents(payload: GetManyDocumentsPayload):
     for document_id in payload.document_ids:
         manager.delete_document_by_id(document_id)
     return JSONResponse(content={})
+
+
+@app.get("/api/count_documents/{doc_type}")
+async def count_documents(doc_type: str):
+    start = datetime.datetime.now()
+    docs = manager.retrieve_all_documents_without_limitation()
+    filtered = [i for i in docs if i['doc_type'] == doc_type]
+    return JSONResponse(content={
+        "all_docs": len(docs),
+        doc_type: len(filtered),
+        "calculation_took": str(datetime.datetime.now() - start)
+    })

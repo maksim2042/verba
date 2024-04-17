@@ -77,6 +77,13 @@ class TrademarkData:
 
         return json.dumps(dataclasses.asdict(self), indent=4, default=json_serial)
 
+    def as_dict(self):
+        return dataclasses.asdict(self)
+
+    @staticmethod
+    def extract_serial_from_docname(tm_verba_doc_name: str) -> str:
+        return utils.extract_tm_serial_from_docname(tm_verba_doc_name)
+
 
 class TrademarkStorage:
     def __init__(self, connection_string, alive_tm_statuses=None, connect_args={}):
@@ -130,10 +137,20 @@ class TrademarkStorage:
     def flush(self):
         self._session.commit()
 
-    def fetch_trademarks_data_from_db(self, dates=None):
+    def fetch_trademarks_data_from_db(self, dates=None, limit=None):
         if not dates:
-            statement = utils.load_sql_template('fetch_actual_trademarks.sql')
+            statement = utils.load_sql_template(
+                name='fetch_actual_trademarks.sql',
+                limit=limit
+            )
+        else:
+            statement = utils.load_sql_template(
+                name='fetch_trademarks_change_by_dates.sql',
+                parameters={'dates|datelist': dates},
+                limit=limit
+            )
 
+        logger.info(f"Starting to fetch trademarks data...")
         with Session(self._engine) as session:
             for i, res in enumerate(session.execute(sqlalchemy.text(statement))):
                 serial, name, owners, statements, status, alive, date = res

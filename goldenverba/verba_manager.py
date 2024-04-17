@@ -502,10 +502,28 @@ class VerbaManager:
         )
         return chunks, context
 
-    def retrieve_all_documents(self, doc_type: str) -> list:
+    def retrieve_all_documents(self, doc_type: str, limit: int = 10000) -> list:
         """Return all documents from Weaviate
+        @param limit: a limit on the number of records that will be returned. Set the value to 0 to disable limitation
+        @param doc_type: the type of documents to be returned. Set to '' to get all types
         @returns list - Document list.
         """
+
+        class_name = "Document_" + schema_manager.strip_non_letters(
+            self.embedder_manager.selected_embedder.vectorizer
+        )
+
+        if limit > 10000 or limit < 1:
+            if not doc_type:
+                return self.retrieve_all_documents_without_limitation()
+            else:
+                raise NotImplementedError(
+                    f"Weaviate does not allow extracting more than 10,000 records by filtering by doc_type in "
+                    f"the request. Use this method with doc_type = '' and then filter the documents manually"
+                )
+
+
+
         class_name = "Document_" + schema_manager.strip_non_letters(
             self.embedder_manager.selected_embedder.vectorizer
         )
@@ -517,7 +535,7 @@ class VerbaManager:
                     properties=["doc_name", "doc_type", "doc_link"],
                 )
                 .with_additional(properties=["id"])
-                .with_limit(10000)
+                .with_limit(limit)
                 .do()
             )
         else:
@@ -534,7 +552,7 @@ class VerbaManager:
                         "valueText": doc_type,
                     }
                 )
-                .with_limit(10000)
+                .with_limit(limit)
                 .do()
             )
 
@@ -671,7 +689,7 @@ class VerbaManager:
                 {
                     "path": ["doc_name"],
                     "operator": "Equal",
-                    "valueText": document.name,
+                    "valueText": document.name.replace('\\', '\\\\'),
                 }
             )
             .with_limit(1)
@@ -710,3 +728,41 @@ class VerbaManager:
         return self.embedder_manager.selected_embedder.search_documents(
             self.client, query, doc_type
         )
+
+    def retrieve_all_documents_without_limitation(self):
+        """Return all documents from Weaviate
+        @returns list - Document list.
+        """
+        def get_batch_with_cursor(collection_name, cursor=None):
+            query = (
+                self.client.query.get(
+                    class_name=collection_name,
+                    properties=["doc_name", "doc_type", "doc_link"],
+                )
+                .with_additional(["id"])
+            )
+            query = query.with_limit(10000)
+
+            if cursor is not None:
+                result = query.with_after(cursor).do()
+            else:
+                result = query.do()
+
+            return result["data"]["Get"][collection_name]
+
+        class_name = "Document_" + schema_manager.strip_non_letters(
+            self.embedder_manager.selected_embedder.vectorizer
+        )
+        cursor = None
+        all_res = []
+        while True:
+            next_batch = get_batch_with_cursor(class_name, cursor)
+
+            if not next_batch:
+                break
+
+            all_res.extend(next_batch)
+
+            cursor = next_batch[-1]["_additional"]["id"]  # Move the cursor to the last returned uuid
+
+        return all_res
